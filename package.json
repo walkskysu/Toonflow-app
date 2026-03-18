@@ -24,7 +24,7 @@
     "build": "cross-env NODE_ENV=prod tsx scripts/build.ts",
     "pack": "electron-builder --dir",
     "dist": "yarn build && electron-builder",
-    "dist:win": "yarn build && electron-builder --win",
+    "dist:win": "yarn build && electron-builder --win portable",
     "dist:mac": "yarn build && electron-builder --mac",
     "dist:linux": "yarn build && electron-builder --linux",
     "test": "cross-env NODE_ENV=prod node build/app.js",
