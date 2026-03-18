@@ -22,6 +22,15 @@ interface AIConfig {
   manufacturer?: string;
 }
 
+const buildLogContext = (config?: AIConfig) => {
+  const { model, baseURL, manufacturer } = config || {};
+  return {
+    model: model || "unknown",
+    manufacturer: manufacturer || "unknown",
+    baseURL: baseURL || "default",
+  };
+};
+
 const buildOptions = async (input: AIInput<any>, config: AIConfig = {}) => {
   if (!config || !config?.model || !config?.apiKey || !config?.manufacturer) throw new Error("请检查模型配置是否正确");
   const { model, apiKey, baseURL, manufacturer } = { ...config };
@@ -85,26 +94,71 @@ const ai = Object.create({}) as {
 };
 
 ai.invoke = async (input: AIInput<any>, config: AIConfig) => {
-  const options = await buildOptions(input, config);
+  const startedAt = Date.now();
+  const context = buildLogContext(config);
+  console.info("[AI][TEXT][invoke] request_start", {
+    ...context,
+    mode: input.prompt ? "prompt" : "messages",
+    hasTools: Boolean(input.tools),
+    hasOutputSchema: Boolean(input.output),
+    maxStep: input.maxStep ?? null,
+  });
 
-  const result = await generateText(options.config);
-  if (options.responseFormat === "object" && input.output) {
-    const pattern = /{[^{}]*}|{(?:[^{}]*|{[^{}]*})*}/g;
-    const jsonLikeTexts = Array.from(result.text.matchAll(pattern), (m) => m[0]);
+  try {
+    const options = await buildOptions(input, config);
+    const result = await generateText(options.config);
+    console.info("[AI][TEXT][invoke] request_success", {
+      ...context,
+      costMs: Date.now() - startedAt,
+      outputType: options.responseFormat || "default",
+      textLength: result.text?.length || 0,
+    });
+    if (options.responseFormat === "object" && input.output) {
+      const pattern = /{[^{}]*}|{(?:[^{}]*|{[^{}]*})*}/g;
+      const jsonLikeTexts = Array.from(result.text.matchAll(pattern), (m) => m[0]);
 
-    const res = jsonLikeTexts.map((jsonText) => parse(jsonText));
-    return res[0];
+      const res = jsonLikeTexts.map((jsonText) => parse(jsonText));
+      return res[0];
+    }
+    if (options.responseFormat === "schema" && input.output) {
+      return JSON.parse(result.text);
+    }
+    return result;
+  } catch (error: any) {
+    console.error("[AI][TEXT][invoke] request_error", {
+      ...context,
+      costMs: Date.now() - startedAt,
+      message: error?.message || String(error),
+    });
+    throw error;
   }
-  if (options.responseFormat === "schema" && input.output) {
-    return JSON.parse(result.text);
-  }
-  return result;
 };
 
 ai.stream = async (input: AIInput, config: AIConfig) => {
-  const options = await buildOptions(input, config);
-
-  return streamText(options.config);
+  const startedAt = Date.now();
+  const context = buildLogContext(config);
+  console.info("[AI][TEXT][stream] request_start", {
+    ...context,
+    mode: input.prompt ? "prompt" : "messages",
+    hasTools: Boolean(input.tools),
+    maxStep: input.maxStep ?? null,
+  });
+  try {
+    const options = await buildOptions(input, config);
+    const stream = streamText(options.config);
+    console.info("[AI][TEXT][stream] request_success", {
+      ...context,
+      costMs: Date.now() - startedAt,
+    });
+    return stream;
+  } catch (error: any) {
+    console.error("[AI][TEXT][stream] request_error", {
+      ...context,
+      costMs: Date.now() - startedAt,
+      message: error?.message || String(error),
+    });
+    throw error;
+  }
 };
 
 export default ai;
