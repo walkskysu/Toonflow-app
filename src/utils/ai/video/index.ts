@@ -14,6 +14,33 @@ import other from "./owned/other";
 import grsai from "./owned/grsai";
 import formal from "./owned/formal";
 
+const inferVideoExtensionFromUrl = (url: string): string => {
+  const cleaned = url.split("?")[0]?.split("#")[0] || "";
+  const ext = cleaned.split(".").pop()?.toLowerCase();
+  if (ext && ["mp4", "mov", "webm", "mkv", "avi", "m4v"].includes(ext)) return ext;
+  return "mp4";
+};
+
+const saveTmpVideoCopyByBuffer = async (buffer: Buffer, ext = "mp4") => {
+  try {
+    const filePath = `tmp_medias/videos/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    await u.oss.writeFile(filePath, buffer);
+    console.info("[AI][VIDEO] tmp_copy_saved", { filePath });
+  } catch (error: any) {
+    console.warn("[AI][VIDEO] tmp_copy_failed", { message: error?.message || String(error) });
+  }
+};
+
+const saveTmpVideoCopyByUrl = async (videoUrl: string) => {
+  try {
+    const ext = inferVideoExtensionFromUrl(videoUrl);
+    const response = await axios.get(videoUrl, { responseType: "arraybuffer" });
+    await saveTmpVideoCopyByBuffer(Buffer.from(response.data), ext);
+  } catch (error: any) {
+    console.warn("[AI][VIDEO] tmp_copy_failed", { message: error?.message || String(error) });
+  }
+};
+
 const modelInstance = {
   volcengine: volcengine,
   kling: kling,
@@ -29,6 +56,12 @@ const modelInstance = {
 
 export default async (input: VideoConfig, config?: AIConfig) => {
   const { model, apiKey, baseURL, manufacturer } = { ...config };
+  const startedAt = Date.now();
+  const logContext = {
+    model: model || "unknown",
+    manufacturer: manufacturer || "unknown",
+    baseURL: baseURL || "default",
+  };
   if (!config || !config?.model || !config?.apiKey) throw new Error("请检查模型配置是否正确");
 
   const manufacturerFn = modelInstance[manufacturer as keyof typeof modelInstance];
@@ -69,22 +102,67 @@ export default async (input: VideoConfig, config?: AIConfig) => {
     });
   }
 
-  let videoUrl = await manufacturerFn(input, { model, apiKey, baseURL });
-  if (videoUrl) {
-    try {
-      const response = await axios.get(videoUrl, { responseType: "stream" });
-      await u.oss.writeFile(input.savePath, response.data);
-      // await u.db("t_myTasks").where("id", taskId).update({
-      //   state: "已完成",
-      // });
-      return input.savePath;
-    } catch (err: any) {
-      // await u.db("t_myTasks").where("id", taskId).update({
-      //   state: "生成失败",
-      //   reason: err.message,
-      // });
-      return videoUrl;
+  try {
+    console.info("[AI][VIDEO] request_start", {
+      ...logContext,
+      promptLength: input.prompt?.length || 0,
+      imageCount: input.imageBase64?.length || 0,
+      duration: input.duration || null,
+      aspectRatio: input.aspectRatio || null,
+      hasAudio: Boolean(input.audio),
+    });
+    let videoUrl = await manufacturerFn(input, { model, apiKey, baseURL });
+    if (videoUrl) {
+      try {
+        const response = await axios.get(videoUrl, { responseType: "stream" });
+        await u.oss.writeFile(input.savePath, response.data);
+        try {
+          if (await u.oss.fileExists(input.savePath)) {
+            const buffer = await u.oss.getFile(input.savePath);
+            await saveTmpVideoCopyByBuffer(buffer, "mp4");
+          } else {
+            await saveTmpVideoCopyByUrl(videoUrl);
+          }
+        } catch (tmpError: any) {
+          console.warn("[AI][VIDEO] tmp_copy_failed", { message: tmpError?.message || String(tmpError) });
+        }
+        console.info("[AI][VIDEO] request_success", {
+          ...logContext,
+          costMs: Date.now() - startedAt,
+          savePath: input.savePath,
+          resultType: "local_file",
+        });
+        // await u.db("t_myTasks").where("id", taskId).update({
+        //   state: "已完成",
+        // });
+        return input.savePath;
+      } catch (err: any) {
+        await saveTmpVideoCopyByUrl(videoUrl);
+        console.warn("[AI][VIDEO] request_success_but_save_failed", {
+          ...logContext,
+          costMs: Date.now() - startedAt,
+          message: err?.message || String(err),
+          fallback: "remote_url",
+        });
+        // await u.db("t_myTasks").where("id", taskId).update({
+        //   state: "生成失败",
+        //   reason: err.message,
+        // });
+        return videoUrl;
+      }
     }
+    console.info("[AI][VIDEO] request_success", {
+      ...logContext,
+      costMs: Date.now() - startedAt,
+      resultType: "empty",
+    });
+    return videoUrl;
+  } catch (error: any) {
+    console.error("[AI][VIDEO] request_error", {
+      ...logContext,
+      costMs: Date.now() - startedAt,
+      message: error?.message || String(error),
+    });
+    throw error;
   }
-  return videoUrl;
 };
