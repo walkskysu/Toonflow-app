@@ -130,6 +130,7 @@ export default async (input: ImageConfig, config: AIConfig) => {
     console.info("[AI][IMAGE] request_start", {
       ...logContext,
       promptLength: input.prompt?.length || 0,
+      prompt: input.prompt || "",
       imageCount: input.imageBase64?.length || 0,
       resType: input.resType || "b64",
       hasSize: Boolean(input.size),

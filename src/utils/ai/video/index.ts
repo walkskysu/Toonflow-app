@@ -106,6 +106,7 @@ export default async (input: VideoConfig, config?: AIConfig) => {
     console.info("[AI][VIDEO] request_start", {
       ...logContext,
       promptLength: input.prompt?.length || 0,
+      prompt: input.prompt || "",
       imageCount: input.imageBase64?.length || 0,
       duration: input.duration || null,
       aspectRatio: input.aspectRatio || null,

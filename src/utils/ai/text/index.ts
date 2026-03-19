@@ -31,6 +31,14 @@ const buildLogContext = (config?: AIConfig) => {
   };
 };
 
+const buildTextRequestDetails = (input: AIInput<any>) => {
+  return {
+    prompt: input.prompt ?? null,
+    messages: input.messages ?? null,
+    system: input.system ?? null,
+  };
+};
+
 const buildOptions = async (input: AIInput<any>, config: AIConfig = {}) => {
   if (!config || !config?.model || !config?.apiKey || !config?.manufacturer) throw new Error("请检查模型配置是否正确");
   const { model, apiKey, baseURL, manufacturer } = { ...config };
@@ -102,6 +110,7 @@ ai.invoke = async (input: AIInput<any>, config: AIConfig) => {
     hasTools: Boolean(input.tools),
     hasOutputSchema: Boolean(input.output),
     maxStep: input.maxStep ?? null,
+    requestDetails: buildTextRequestDetails(input),
   });
 
   try {
@@ -112,6 +121,7 @@ ai.invoke = async (input: AIInput<any>, config: AIConfig) => {
       costMs: Date.now() - startedAt,
       outputType: options.responseFormat || "default",
       textLength: result.text?.length || 0,
+      responseText: result.text || "",
     });
     if (options.responseFormat === "object" && input.output) {
       const pattern = /{[^{}]*}|{(?:[^{}]*|{[^{}]*})*}/g;
@@ -142,6 +152,7 @@ ai.stream = async (input: AIInput, config: AIConfig) => {
     mode: input.prompt ? "prompt" : "messages",
     hasTools: Boolean(input.tools),
     maxStep: input.maxStep ?? null,
+    requestDetails: buildTextRequestDetails(input),
   });
   try {
     const options = await buildOptions(input, config);
